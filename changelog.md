@@ -1,4 +1,12 @@
-#CHANGELOG  
+#CHANGELOG
+v0.1.3 Mar 3 2017  
+- Added base functionality for potion helper, currently monitors stardustPotion and superStardustPotion  
+Will notify you when one of your monitored potions are available to be drank. Left click opens brewing tab, right click drinks them all. Will be configurable in the future  
+
+v0.1.2 Mar 3 2017  
+- Added clickable links to the chat  
+- Disabled ability to unequip gear in combat  
+
 v0.1.1 Mar 2 2017  
 - Greatly enhanced notifications  
 

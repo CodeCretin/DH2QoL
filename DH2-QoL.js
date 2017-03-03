@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name		DH2QoL
 // @namespace	https://greasyfork.org/
-// @version		0.1.1
+// @version		0.1.3
 // @description	Quality of Life tweaks for Diamond Hunt 2
 // @author		John / WhoIsYou / CodeCretin
 // @match		http://*.diamondhunt.co/game.php
@@ -63,6 +63,7 @@ const TREES = {
 };
 const RAW_FOOD = ["uncookedBread", "uncookedCake", "rawChicken", "rawShrimp", "rawSardine", "rawTuna", "rawSwordfish", "rawShark", "rawWhale", "rawRainbowFish"];
 const COOKED_FOOD = ["honey", "bread", "chicken", "shrimp", "sardine", "tuna", "swordfish", "shark", "whale", "rainbowFish"];
+const MONITORED_POTIONS = ["stardustPotion", "superStardustPotion"];
 
 (function init(triesLeft) {
 
@@ -89,7 +90,9 @@ const COOKED_FOOD = ["honey", "bread", "chicken", "shrimp", "sardine", "tuna", "
 		enableRightClickCookAllFood();
 		enableRightClickEatAllFood();
 		disableLeftClickSellGems();
+		disableUnequipInCombat();
 		// Additional proxies
+		proxyAddToChatBox();
 		proxyConfirmDialogue();
 		// Interface delight
 		updateStyleSheets();
@@ -121,22 +124,25 @@ function postGameTick() {
 function openSettings() {
 
 }
-
+/*
+	Loads initial data for unopened tabs
+*/
 function processDormantTabsOnLoad() {
 	window.processBrewingTab();
 }
 
+/*
+	Update the game-main-style.css styleSheet
+	Delete then update the span.notif-box rule, and add our dhqol-notif-ready rule
+*/
 function updateStyleSheets() {
-	for (let i = 0; i < document.styleSheets.length; i++) {
-		if (document.styleSheets[i].href.indexOf("game-main-style.css") !== -1) {
-			// game-main-style.css
-			let styleSheet = document.styleSheets[i];
+	for (let styleSheet of document.styleSheets) {
+		if (styleSheet.href.indexOf("game-main-style.css") !== -1) {
 			if (styleSheet.cssRules) {
-
-				for (let k in styleSheet.cssRules) {
-					let cssRule = styleSheet.cssRules[k];
+				for (let index in styleSheet.cssRules) {
+					let cssRule = styleSheet.cssRules[index];
 					if (cssRule.selectorText && cssRule.selectorText.indexOf("span.notif-box") !== -1) {
-						styleSheet.deleteRule(k); // Delete the original span.notif-box rule
+						styleSheet.deleteRule(index); // Delete the original span.notif-box rule
 						styleSheet.insertRule(`span.notif-box
 							{
 								display:inline-block;
@@ -172,10 +178,13 @@ function updateStyleSheets() {
 	}
 }
 
+/*
+	Create and add our custom DH2QoL persistent notification elements to the document
+*/
 function addNotificationElements() {
 	const SPAN = document.createElement("span");
 	SPAN.className = "dhqol-notif-ready";
-	SPAN.style = "display:inline-block"
+	SPAN.style = "display:inline-block";
 	SPAN.appendChild(document.createElement("img"));
 	SPAN.children[0].className = "image-icon-50";
 	SPAN.appendChild(document.createElement("span"));
@@ -199,11 +208,17 @@ function addNotificationElements() {
 	let rowBoatElement = SPAN.cloneNode(true);
 	rowBoatElement.id = "dhqol-notif-rowboat";
 	rowBoatElement.children[0].setAttribute("src", "images/rowBoat.png");
-	rowBoatElement.setAttribute("onclick", "window.clicksBoat('rowBoat')");
 	let canoeElement = SPAN.cloneNode(true);
 	canoeElement.id = "dhqol-notif-canoe";
 	canoeElement.children[0].setAttribute("src", "images/canoe.png");
-	canoeElement.setAttribute("onclick", "window.clicksBoat('canoe')");
+	let vialElement = SPAN.cloneNode(true);
+	vialElement.id = "dhqol-notif-vial";
+	vialElement.children[0].setAttribute("src", "images/vialOfWater.png");
+	vialElement.setAttribute("onclick", "window.openTab('brewing');");
+	vialElement.oncontextmenu = function() {
+		drinkMonitoredPotions();
+		return false;
+	};
 
 	// Insert our new elements into the document
 	notificationNode.insertBefore(furnaceElement, refNode);
@@ -212,17 +227,17 @@ function addNotificationElements() {
 	notificationNode.insertBefore(combatElement, refNode);
 	notificationNode.insertBefore(rowBoatElement, refNode);
 	notificationNode.insertBefore(canoeElement, refNode);
+	notificationNode.insertBefore(vialElement, refNode);
 }
 
 function updateNotificationElements() {
 	// Hide native DH2 notifications
-	let notificationIDs = ["notification-static-farming", "notification-static-woodcutting", "notification-static-combat", "notif-smelting", "notif-rowBoatTimer", "notif-canoeTimer"];
-	for (let i = 0; i < notificationIDs.length; i++) {
-		let node = document.getElementById(notificationIDs[i]);
-		if (node) {
-			node.style.display = "none";
-		}
-	}
+ 	const NOTIFICATION_IDS = ["notification-static-farming", "notification-static-woodcutting", "notification-static-combat", "notif-smelting", "notif-rowBoatTimer", "notif-canoeTimer"];
+	NOTIFICATION_IDS.forEach((id) => {
+			let node = document.getElementById(id);
+			if (node)
+				node.style.display = "none";
+	});
 
 	// Update DH2QoL Custom notifications based on gamestate
 	let furnaceElement = document.getElementById("dhqol-notif-furnace");
@@ -233,12 +248,14 @@ function updateNotificationElements() {
 		furnaceElement.children[1].textContent = "";
 		furnaceElement.onclick = function() {
 			window.openTab("crafting");
-			window.openFurnaceDialogue(getBoundFurnace());
-		}
+			if (getBoundFurnace() !== null) {
+				window.openFurnaceDialogue(getBoundFurnace());
+			}
+		};
 		furnaceElement.oncontextmenu = function() {
 			furnaceRepeat();
 			return false;
-		}
+		};
 	} else {
 		furnaceElement.className = "notif-box";
 		furnaceElement.children[0].setAttribute("src", `images/${window.getBarFromId(window.smeltingBarType)}.png`);
@@ -254,7 +271,7 @@ function updateNotificationElements() {
 		woodCuttingElement.oncontextmenu = function() {
 			harvestTrees();
 			return false;
-		}
+		};
 	} else {
 		let gt = getSoonestWoodcuttingTimer();
 		woodCuttingElement.className = "notif-box";
@@ -273,12 +290,12 @@ function updateNotificationElements() {
 				if (window.planter == 1) {
 					window.openFarmingPatchDialogue(-1);
 					return false;
-				};
-			}
+				}
+			};
 		} else {
 			farmingElement.className = "notif-box";
 			farmingElement.setAttribute("onclick", "");
-			farmingElement.children[1].textContent = formatTime(getBestFarmingTimer());
+			farmingElement.children[1].textContent = formatTime(getSoonestFarmingTimer());
 		}
 
 	let combatElement = document.getElementById("dhqol-notif-combat");
@@ -294,34 +311,76 @@ function updateNotificationElements() {
 	}
 	let rowBoatElement = document.getElementById("dhqol-notif-rowboat");
 	rowBoatElement.style.display = window.boundRowBoat == 1 ? "inline-block" : "none";
-	if (window.rowboatTimer == 0) {
+	if (window.rowBoatTimer == 0) {
 		rowBoatElement.className = "dhqol-notif-ready";
 		rowBoatElement.children[1].innerHTML = '<img class="image-icon-15" src="images/fishingBait.png">' + window.fishingBait;
+		rowBoatElement.setAttribute("onclick", "window.clicksBoat('rowBoat')");
 	} else {
 		rowBoatElement.className = "notif-box";
 		rowBoatElement.children[1].innerHTML = formatTime(window.rowBoatTimer);
+		rowBoatElement.setAttribute("onclick", "w");
 	}
 	let canoeElement = document.getElementById("dhqol-notif-canoe");
 	canoeElement.style.display = window.boundCanoe == 1 ? "inline-block" : "none";
 	if (window.canoeTimer == 0) {
 		canoeElement.className = "dhqol-notif-ready";
 		canoeElement.children[1].innerHTML = '<img class="image-icon-15" src="images/fishingBait.png">' + window.fishingBait;
+		canoeElement.setAttribute("onclick", "window.clicksBoat('canoe')");
 	} else {
 		canoeElement.className = "notif-box";
 		canoeElement.children[1].innerHTML = formatTime(window.canoeTimer);
+		canoeElement.setAttribute("onclick", "");
 	}
+
+	processPotionHelper();
 }
 
-function ctrlClickRecipeToHide() {
-	let nodes = document.querySelectorAll("[id^=crafting-]");
+function processPotionHelper() {
+	let potions = getMonitoredPotionsToDrink();
+	let vialElement = document.getElementById("dhqol-notif-vial");
+	vialElement.style.display = (window.brewingUnlocked == 1 ? (potions.length > 0 ? "inline-block" : "none") : "none");
+}
 
+function getMonitoredPotionsToDrink() {
+	let potions = [];
+	MONITORED_POTIONS.forEach((monitoredPotion) => {
+		if (window[monitoredPotion] > 0 && (window[monitoredPotion + "Timer"] !== undefined && window[monitoredPotion + "Timer"] == 0)) {
+			potions.push(monitoredPotion);
+		}
+	});
+	return potions;
+}
+
+function drinkMonitoredPotions() {
+	let timeout = 0;
+	MONITORED_POTIONS.forEach((monitoredPotion) => {
+		if (window[monitoredPotion] > 0 && (window[monitoredPotion + "Timer"] !== undefined && window[monitoredPotion + "Timer"] == 0)) {
+			setTimeout(() => {
+				if (window[monitoredPotion + "Timer"] !== undefined && window[monitoredPotion + "Timer"] == 0)
+					window.sendBytes("DRINK=" + monitoredPotion);
+			}, timeout * 150);
+			timeout++;
+		}
+	});
+}
+
+function addCtrlClickRecipeToHide() {
+	let nodes = document.querySelectorAll("[id^=crafting-]").concat(querySelectorAll("[id^=brewing-]"));
+	nodes.forEach((node) => {
+		node.addEventListener("click", function(e) {
+			if (e.ctrlKey) {
+				e.stopImmediatePropagation(); // Prevents any other events on this element from firing
+				this.style.display = "none";
+			}
+		}, true); // useCapture = true
+	});
 }
 
 function harvestTrees() {
 	for (let i = 1; i <= 6; i++) {
 		if (window["treeStage" + i] == 4) {
 			setTimeout(() => {
-				sendBytes("CHOP_TREE=" + i);
+				window.sendBytes("CHOP_TREE=" + i);
 			}, i * 25);
 		}
 	}
@@ -329,10 +388,9 @@ function harvestTrees() {
 
 function enableRightClickFurnaceRepeat() {
 	let nodes = document.querySelectorAll("[onclick^=openFurnaceDialogue]");
-	for (let k in nodes) {
-		let node = nodes[k];
-		if (node && node instanceof Node) {
-			node.oncontextmenu = () => {
+	nodes.forEach((node) => {
+		if (node instanceof Node) {
+			node.oncontextmenu = function() {
 				let amt = document.getElementById("input-smelt-bars-amount").value;
 				if (window.smeltingBarType == 0 && amt > 0 && window.selectedBar !== "none") {
 					window.smelt(amt);
@@ -340,7 +398,7 @@ function enableRightClickFurnaceRepeat() {
 				return false;
 			};
 		}
-	}
+	});
 }
 
 function furnaceRepeat() {
@@ -351,11 +409,11 @@ function furnaceRepeat() {
 }
 
 function enableRightClickBrewAllPotion() {
-	let keys = Object.keys(window.brewingRecipes);
-	for (let k = 0; k < keys.length; k++) {
-		let key = keys[k];
-		if (key === "stardustCrystalPotion")
-			continue;
+	const KEYS = Object.keys(window.brewingRecipes);
+	KEYS.forEach((key) => {
+		if (key === "stardustCrystalPotion") {
+			return;
+		}
 		let recipe = window.brewingRecipes[key];
 		let node = document.getElementById("brewing-" + key);
 		if (node) {
@@ -371,43 +429,31 @@ function enableRightClickBrewAllPotion() {
 				return false;
 			};
 		}
-	}
+	});
 }
 
 function enableRightClickCookAllFood() {
-	for (let k in RAW_FOOD) {
-		let food = RAW_FOOD[k];
+	RAW_FOOD.forEach((food) => {
 		let node = document.getElementById("item-box-" + food);
 		if (node) {
-			node.oncontextmenu = () => {
+			node.oncontextmenu = function() {
 				window.cook(food, window[food]);
 				return false;
 			};
 		}
-	}
+	});
 }
 
 function enableRightClickEatAllFood() {
-	for (let k in COOKED_FOOD) {
-		let food = COOKED_FOOD[k];
+	COOKED_FOOD.forEach((food) => {
 		let node = document.getElementById("item-box-" + food);
 		if (node) {
-			node.oncontextmenu = () => {
+			node.oncontextmenu = function() {
 				window.sendBytes(`CONSUME=${food}~${window[food]}`);
 				return false;
 			};
 		}
-	}
-}
-
-function ebaleRightClickOpenAllLoot() {
-	let nodes = document.querySelectorAll("[id^=item-box-npcLoot]");
-	for (let k in nodes) {
-		let node = nodes[k];
-		if (node) {
-			// finish and add this when 'adventurer log' is added
-		}
-	}
+	});
 }
 
 function disableLeftClickSellGems() {
@@ -420,9 +466,32 @@ function disableLeftClickSellGems() {
 	} catch (e) { console.log(e); }
 }
 
+function disableUnequipInCombat() {
+	let node = document.querySelector("[class=imageHero]");
+	if (node && node.parentNode) {
+		node.parentNode.onclick = function() {
+			if (!window.isInCombat()) {
+				window.sendBytes("UEQUIP_H");
+			}
+		};
+	}
+}
+
 function getBoundFurnace() {
 	return window.boundStoneFurnace !== 0 ? "boundStoneFurnace" : window.boundBronzeFurnace !== 0 ? "boundBronzeFurnace" :
 		window.boundIronFurnace !== 0 ? "boundIronFurnace" : window.boundSilverFurnace !== 0 ? "boundSilverFurnace" : window.boundGoldFurnace !== 0 ? "boundGoldFurnace" : null;
+}
+
+function getOilCapacity() {
+	return window.maxOil;
+}
+
+function getCurrentOil() {
+	return window.oil;
+}
+
+function getNetOilConsumption() {
+	return window.oilIn - window.oilOut;
 }
 
 /*****
@@ -432,17 +501,25 @@ function getBoundFurnace() {
 *****/
 
 function proxyWebSocketOnMessage() {
-	let proxy = window.webSocket.onmessage;
-	window.webSocket.onmessage = function() {
-		proxy.apply(this, arguments);
+	const PROXY = window.webSocket.onmessage;
+	window.webSocket.onmessage = function(e) {
+		PROXY.apply(this, arguments);
 		postGameTick();
 	};
 }
 
+function proxyAddToChatBox() {
+	const PROXY = window.addToChatBox;
+	window.addToChatBox = function(username, icon, tag, message, isPM) {
+		arguments[3] = linkify(arguments[3]);
+		PROXY.apply(this, arguments);
+	};
+}
+
 function proxyConfirmDialogue() {
-	let proxy = window.confirmDialogue;
+	const PROXY = window.confirmDialogue;
 	window.confirmDialogue = function(width, bodyText, buttonText1, buttonText2, sendBytes) {
-		proxy.apply(this, arguments);
+		PROXY.apply(this, arguments);
 	};
 }
 
@@ -533,7 +610,7 @@ function getSoonestWoodcuttingTimer() {
 	return timer;
 }
 
-function getBestFarmingTimer() {
+function getSoonestFarmingTimer() {
 	let timer = null;
 	for (let i = 1; i <= (window.donorFarmingPatch ? 6 : 4); i++) {
 		let gt = window["farmingPatchGrowTime" + i] - window["farmingPatchTimer" + i];
@@ -560,16 +637,4 @@ function updateOilTimer() {
 		else
 			oilTimerNode.textContent = ` (${(getNetOilConsumption() > 0) ? formatTime((getOilCapacity() - getCurrentOil()) / getNetOilConsumption()) : formatTime(getCurrentOil() / getNetOilConsumption())})`;
 	}
-}
-
-function getOilCapacity() {
-	return window.maxOil;
-}
-
-function getCurrentOil() {
-	return window.oil;
-}
-
-function getNetOilConsumption() {
-	return window.oilIn - window.oilOut;
 }
