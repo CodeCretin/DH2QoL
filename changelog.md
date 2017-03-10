@@ -1,4 +1,15 @@
 #CHANGELOG
+v0.1.5  
+- Added stardust monitor that shows stardust gains per tick beside total stardust  
+- Future-proofed context menu cook & eat food functionality  
+- Future-proofed #getBoundFurnace  
+- Removed custom tree timer elements and now update the newly added native ones instead  
+- Further future-proofed tree timers
+
+v0.1.4 Mar 5 2017
+- Added right click to craft as many vials as possible  
+- Bugfix with tree timers and potential newly added trees (future-proofed)
+
 v0.1.3 Mar 3 2017  
 - Added base functionality for potion helper, currently monitors stardustPotion and superStardustPotion  
 Will notify you when one of your monitored potions are available to be drank. Left click opens brewing tab, right click drinks them all. Will be configurable in the future  
